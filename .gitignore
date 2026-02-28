@@ -1,0 +1,24 @@
+# Frontend
+frontend/node_modules/
+frontend/build/
+
+# Backend (if Node)
+backend/node_modules/
+
+# Environment files
+.env
+frontend/.env
+backend/.env
+
+# Logs
+*.log
+
+# OS / IDE
+.DS_Store
+.vscode/
+.idea/
+
+# Python backend (if used)
+__pycache__/
+*.pyc
+venv/
