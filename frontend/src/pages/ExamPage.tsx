@@ -49,12 +49,18 @@ const ExamPage = () => {
 
   const [currentIndex, setCurrentIndex] = useState(0);
   const [selectedOption, setSelectedOption] = useState<string | null>(null);
-
-  const currentQuestion = questions[currentIndex];
   const [isListening, setIsListening] = useState(false);
+  const [simplifiedText, setSimplifiedText] = useState<string | null>(null);
+
   const recognitionRef = useRef<any>(null);
-  
+  const currentQuestion = questions[currentIndex];
+
   /* ---------------- MODES ---------------- */
+
+  const readingMode = preferences.includes("reading");
+  const listeningMode = preferences.includes("listening");
+  const simplifiedMode =
+    toggles["simplify-language"] || preferences.includes("simplified");
 
   const signMode =
     toggles["sign-video"] || toggles["dual-language"];
@@ -63,12 +69,20 @@ const ExamPage = () => {
   const largeText = toggles["extra-large-text"];
   const voiceMode = toggles["voice-answers"];
 
-  // 🔊 LISTENING MODE (based on preference selection)
-  const listeningMode = preferences.includes("listening");
+  /* ---------------- READING CONTROLS ---------------- */
 
-  const themeClasses = highContrast
-    ? "bg-black text-white"
-    : "bg-background text-foreground";
+  const [fontSize, setFontSize] = useState(18);
+  const [lineSpacing, setLineSpacing] = useState(1.6);
+  const [isDarkMode, setIsDarkMode] = useState(true);
+  const [dyslexiaFont, setDyslexiaFont] = useState(false);
+
+  const themeClasses = readingMode
+    ? isDarkMode
+      ? "bg-black text-white"
+      : "bg-white text-black"
+    : highContrast
+      ? "bg-black text-white"
+      : "bg-background text-foreground";
 
   const textSize = largeText ? "text-3xl" : "text-xl";
   const optionSize = largeText ? "text-xl py-5" : "text-base py-3";
@@ -79,21 +93,31 @@ const ExamPage = () => {
     window.speechSynthesis.cancel();
     const utterance = new SpeechSynthesisUtterance(text);
     utterance.rate = 0.9;
-    utterance.pitch = 1;
     utterance.lang = "en-US";
     window.speechSynthesis.speak(utterance);
   };
 
-  // Auto speak on question change
   useEffect(() => {
     if (listeningMode) {
       speakText(currentQuestion.question);
     }
-
-    return () => {
-      window.speechSynthesis.cancel();
-    };
+    return () => window.speechSynthesis.cancel();
   }, [currentIndex]);
+
+  /* ---------------- SIMPLIFY ---------------- */
+
+  const handleSimplify = () => {
+    setSimplifiedText(
+      "Simplified: " +
+      currentQuestion.question
+        .replace("In computer science,", "")
+        .replace("strictly follows", "uses")
+        .replace(
+          "meaning the first element inserted is the first one to be removed",
+          "first added, first removed"
+        )
+    );
+  };
 
   /* ---------------- WEBCAM ---------------- */
 
@@ -102,35 +126,149 @@ const ExamPage = () => {
       const stream = await navigator.mediaDevices.getUserMedia({
         video: true,
       });
-
       const videoElement = document.getElementById(
         "webcam-preview"
       ) as HTMLVideoElement;
-
-      if (videoElement) {
-        videoElement.srcObject = stream;
-      }
+      if (videoElement) videoElement.srcObject = stream;
     } catch (error) {
       alert("Unable to access webcam.");
-      console.error(error);
     }
   };
+
+  /* ---------------- SPEECH RECOGNITION ---------------- */
+
+  const startListening = () => {
+    const SpeechRecognition =
+      (window as any).SpeechRecognition ||
+      (window as any).webkitSpeechRecognition;
+
+    if (!SpeechRecognition) {
+      alert("Speech Recognition not supported");
+      return;
+    }
+
+    const recognition = new SpeechRecognition();
+    recognition.lang = "en-US";
+
+    recognition.onstart = () => setIsListening(true);
+    recognition.onend = () => setIsListening(false);
+
+    recognition.onresult = (event: any) => {
+      const transcript = event.results[0][0].transcript.toLowerCase();
+
+      currentQuestion.options.forEach((option, index) => {
+        const letter = String.fromCharCode(97 + index);
+
+        if (
+          transcript.includes(option.toLowerCase()) ||
+          transcript.includes(`option ${letter}`) ||
+          transcript === letter
+        ) {
+          setSelectedOption(option);
+        }
+      });
+    };
+
+    recognition.start();
+  };
+
+  /* ---------------- QUESTION BLOCK ---------------- */
+
+  const QuestionBlock = () => (
+    <motion.div
+      key={currentQuestion.id}
+      initial={{ opacity: 0, y: 20 }}
+      animate={{ opacity: 1, y: 0 }}
+      style={
+        readingMode
+          ? {
+            fontSize: `${fontSize}px`,
+            lineHeight: lineSpacing,
+            fontFamily: dyslexiaFont
+              ? "OpenDyslexic, sans-serif"
+              : "inherit",
+          }
+          : {}
+      }
+      className={`font-semibold space-y-4 ${!readingMode ? textSize : ""
+        }`}
+    >
+      <div>{simplifiedText || currentQuestion.question}</div>
+
+      {simplifiedMode && (
+        <button
+          onClick={handleSimplify}
+          className="px-4 py-2 rounded-xl bg-accent text-black text-sm"
+        >
+          Simplify Question
+        </button>
+      )}
+    </motion.div>
+  );
+
+  /* ---------------- OPTIONS ---------------- */
+
+  const OptionsBlock = () => (
+    <div className="space-y-4">
+      {currentQuestion.options.map((opt, i) => (
+        <button
+          key={i}
+          onClick={() => setSelectedOption(opt)}
+          style={
+            readingMode
+              ? {
+                fontSize: `${fontSize - 2}px`,
+                lineHeight: lineSpacing,
+                fontFamily: dyslexiaFont
+                  ? "OpenDyslexic, sans-serif"
+                  : "inherit",
+              }
+              : {}
+          }
+          className={`w-full rounded-xl px-6 ${optionSize} transition-all duration-300 ${selectedOption === opt
+              ? "bg-primary text-white shadow-[var(--glow-primary)]"
+              : "glass-card"
+            }`}
+        >
+          {opt}
+        </button>
+      ))}
+    </div>
+  );
 
   /* ---------------- NAVIGATION ---------------- */
 
-  const handleNext = () => {
-    if (currentIndex < questions.length - 1) {
-      setCurrentIndex((prev) => prev + 1);
-      setSelectedOption(null);
-    }
-  };
+  const Navigation = () => (
+    <div className="flex justify-between">
+      <button
+        disabled={currentIndex === 0}
+        onClick={() => {
+          if (currentIndex > 0) {
+            setCurrentIndex((prev) => prev - 1);
+            setSelectedOption(null);
+            setSimplifiedText(null);
+          }
+        }}
+        className="gradient-button px-6 py-3 rounded-xl disabled:opacity-40"
+      >
+        Previous
+      </button>
 
-  const handlePrev = () => {
-    if (currentIndex > 0) {
-      setCurrentIndex((prev) => prev - 1);
-      setSelectedOption(null);
-    }
-  };
+      <button
+        disabled={currentIndex === questions.length - 1}
+        onClick={() => {
+          if (currentIndex < questions.length - 1) {
+            setCurrentIndex((prev) => prev + 1);
+            setSelectedOption(null);
+            setSimplifiedText(null);
+          }
+        }}
+        className="gradient-button px-6 py-3 rounded-xl disabled:opacity-40"
+      >
+        Next
+      </button>
+    </div>
+  );
 
   /* ---------------- LAYOUTS ---------------- */
 
@@ -138,7 +276,6 @@ const ExamPage = () => {
     <div className="max-w-4xl mx-auto mt-10 space-y-8">
       <QuestionBlock />
 
-      {/* 🔊 Replay Button (Only if listening mode enabled) */}
       {listeningMode && (
         <button
           onClick={() => speakText(currentQuestion.question)}
@@ -156,26 +293,12 @@ const ExamPage = () => {
 
   const SplitLayout = () => (
     <div className="max-w-6xl mx-auto mt-10 grid md:grid-cols-2 gap-8">
-
-      {/* LEFT SIDE */}
       <div className="space-y-8">
         <QuestionBlock />
-
-        {listeningMode && (
-          <button
-            onClick={() => speakText(currentQuestion.question)}
-            className="flex items-center gap-2 px-4 py-2 rounded-xl bg-accent text-black font-medium"
-          >
-            <Volume2 size={18} />
-            Replay Audio
-          </button>
-        )}
-
         <OptionsBlock />
         <Navigation />
       </div>
 
-      {/* RIGHT SIDE */}
       <motion.div
         initial={{ opacity: 0, x: 40 }}
         animate={{ opacity: 1, x: 0 }}
@@ -185,28 +308,20 @@ const ExamPage = () => {
           🤟 Sign Language Mode
         </h3>
 
-        <div className="rounded-xl overflow-hidden border border-border bg-black">
-          <video
-            src={`/sign-videos/q${currentQuestion.id}.mp4`}
-            controls
-            autoPlay
-            className="w-full h-64 object-cover"
-          />
-        </div>
+        <video
+          src={`/sign-videos/q${currentQuestion.id}.mp4`}
+          controls
+          autoPlay
+          className="w-full h-64 object-cover"
+        />
 
-        <p className="text-sm opacity-70">
-          Answer using sign language via webcam OR select an option.
-        </p>
-
-        <div className="rounded-xl overflow-hidden border border-border bg-black">
-          <video
-            id="webcam-preview"
-            autoPlay
-            muted
-            playsInline
-            className="w-full h-56 object-cover"
-          />
-        </div>
+        <video
+          id="webcam-preview"
+          autoPlay
+          muted
+          playsInline
+          className="w-full h-56 object-cover"
+        />
 
         <button
           onClick={startWebcam}
@@ -218,126 +333,99 @@ const ExamPage = () => {
     </div>
   );
 
-  /* ---------------- QUESTION ---------------- */
-
-  const QuestionBlock = () => (
-    <motion.div
-      key={currentQuestion.id}
-      initial={{ opacity: 0, y: 20 }}
-      animate={{ opacity: 1, y: 0 }}
-      className={`font-semibold ${textSize}`}
-    >
-      {currentQuestion.question}
-    </motion.div>
-  );
-
-  /* ---------------- OPTIONS ---------------- */
-
-  const OptionsBlock = () => (
-    <div className="space-y-4">
-      {currentQuestion.options.map((opt, i) => (
-        <button
-          key={i}
-          onClick={() => setSelectedOption(opt)}
-          className={`w-full rounded-xl px-6 ${optionSize} transition-all duration-300 ${selectedOption === opt
-            ? "bg-primary text-white shadow-[var(--glow-primary)]"
-            : "glass-card"
-            }`}
-        >
-          {opt}
-        </button>
-      ))}
-    </div>
-  );
-
-  const startListening = () => {
-    const SpeechRecognition =
-      (window as any).SpeechRecognition ||
-      (window as any).webkitSpeechRecognition;
-
-    if (!SpeechRecognition) {
-      alert("Speech Recognition not supported in this browser");
-      return;
-    }
-
-    const recognition = new SpeechRecognition();
-    recognition.lang = "en-US";
-    recognition.continuous = false;
-    recognition.interimResults = false;
-
-    recognition.onstart = () => {
-      setIsListening(true);
-    };
-
-    recognition.onend = () => {
-      setIsListening(false);
-    };
-
-    recognition.onresult = (event: any) => {
-      const transcript = event.results[0][0].transcript
-        .toLowerCase()
-        .trim();
-
-      console.log("Heard:", transcript);
-
-      // Match spoken text to options
-      currentQuestion.options.forEach((option, index) => {
-        const letter = String.fromCharCode(97 + index); // a,b,c,d
-
-        if (
-          transcript.includes(option.toLowerCase()) ||
-          transcript.includes(`option ${letter}`) ||
-          transcript === letter
-        ) {
-          setSelectedOption(option);
-        }
-      });
-    };
-
-    recognitionRef.current = recognition;
-    recognition.start();
-  };
-
-  /* ---------------- NAVIGATION ---------------- */
-
-  const Navigation = () => (
-    <div className="flex justify-between">
-      <button
-        onClick={handlePrev}
-        disabled={currentIndex === 0}
-        className="gradient-button px-6 py-3 rounded-xl disabled:opacity-40"
-      >
-        Previous
-      </button>
-
-      <button
-        onClick={handleNext}
-        disabled={currentIndex === questions.length - 1}
-        className="gradient-button px-6 py-3 rounded-xl disabled:opacity-40"
-      >
-        Next
-      </button>
-    </div>
-  );
-
   /* ---------------- MAIN ---------------- */
 
   return (
     <div className={`min-h-screen ${themeClasses} px-6 py-12`}>
+      {readingMode && (
+        <div className="max-w-4xl mx-auto mb-8 p-6 rounded-2xl glass-card space-y-8">
+
+          <h3 className="text-xl font-semibold">Reading Accessibility Controls</h3>
+
+          {/* 1️⃣ TEXT SIZE */}
+          <div className="space-y-2">
+            <div className="flex justify-between text-sm">
+              <span>Text Size</span>
+              <span>{fontSize}px</span>
+            </div>
+
+            <input
+              type="range"
+              min="14"
+              max="34"
+              value={fontSize}
+              onChange={(e) => setFontSize(Number(e.target.value))}
+              className="w-full accent-primary"
+            />
+          </div>
+
+          {/* 2️⃣ LINE SPACING */}
+          <div className="space-y-2">
+            <span className="text-sm">Line Spacing</span>
+
+            <div className="flex gap-3">
+              <button
+                onClick={() => setLineSpacing(1.4)}
+                className={`px-4 py-2 rounded-xl ${lineSpacing === 1.4 ? "bg-primary text-white" : "bg-secondary"
+                  }`}
+              >
+                Normal
+              </button>
+
+              <button
+                onClick={() => setLineSpacing(1.8)}
+                className={`px-4 py-2 rounded-xl ${lineSpacing === 1.8 ? "bg-primary text-white" : "bg-secondary"
+                  }`}
+              >
+                1.5x
+              </button>
+
+              <button
+                onClick={() => setLineSpacing(2.2)}
+                className={`px-4 py-2 rounded-xl ${lineSpacing === 2.2 ? "bg-primary text-white" : "bg-secondary"
+                  }`}
+              >
+                2x
+              </button>
+            </div>
+          </div>
+
+          {/* 3️⃣ LIGHT / DARK MODE */}
+          <div className="flex items-center justify-between">
+            <span className="text-sm">Theme Mode</span>
+
+            <button
+              onClick={() => setIsDarkMode(!isDarkMode)}
+              className="px-4 py-2 rounded-xl bg-primary text-white"
+            >
+              {isDarkMode ? "Switch to Light Mode" : "Switch to Dark Mode"}
+            </button>
+          </div>
+
+          {/* 4️⃣ DYSLEXIA FONT */}
+          <div className="flex items-center justify-between">
+            <span className="text-sm">Dyslexia-Friendly Font</span>
+
+            <button
+              onClick={() => setDyslexiaFont(!dyslexiaFont)}
+              className="px-4 py-2 rounded-xl bg-primary text-white"
+            >
+              {dyslexiaFont ? "Disable" : "Enable"}
+            </button>
+          </div>
+
+        </div>
+      )}
 
       {signMode ? <SplitLayout /> : <StandardLayout />}
 
       {voiceMode && (
         <motion.button
           onClick={startListening}
-          initial={{ scale: 0 }}
-          animate={{ scale: 1 }}
-          whileHover={{ scale: 1.1 }}
-          whileTap={{ scale: 0.95 }}
           className={`fixed bottom-10 left-1/2 -translate-x-1/2 
                 w-28 h-28 rounded-full 
                 flex items-center justify-center 
-                z-50 transition-all duration-300
+                z-50
                 ${isListening
               ? "bg-red-500 animate-pulse"
               : "bg-primary shadow-[var(--glow-primary)]"
