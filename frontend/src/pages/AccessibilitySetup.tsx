@@ -179,7 +179,9 @@ const AccessibilitySetup = () => {
           <button
             onClick={() =>
               navigate("/exam", {
-                state: { toggles: toggleStates },
+                state: { toggles: toggleStates,
+                   preferences: selectedPrefs,
+                 },
               })
             }
             className="gradient-button px-8 py-4 rounded-xl"
